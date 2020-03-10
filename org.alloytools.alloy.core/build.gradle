@@ -1,5 +1,10 @@
 apply plugin: 'java'
 
+group = 'org.alloytools.alloy.core'
+archivesBaseName = 'alloy-core'
+version = '5.1.0'
+mainClassName = 'org.alloytools.alloy.core.AlloyCore'
+
 task jflex(type: JavaExec) {
     inputs.files("src/main/java/edu/mit/csail/sdg/parser/Alloy.lex")
     outputs.files("src/main/java/edu/mit/csail/sdg/parser/CompLexer.java")
@@ -28,3 +33,81 @@ task cup(type: JavaExec ) {
 compileJava.dependsOn(jflex)
 compileJava.dependsOn(cup)
 cup.dependsOn(jflex)
+
+if (project.hasProperty('ossrhUsername') && project.hasProperty('ossrhPassword')
+        && project.hasProperty("signing.keyId")) {
+
+    apply plugin: 'signing'
+
+    task javadocJar(type: Jar) {
+        classifier = 'javadoc'
+        from javadoc
+    }
+
+    task sourcesJar(type: Jar) {
+        classifier = 'sources'
+        from sourceSets.main.allSource
+        manifest {
+            attributes(
+                    'Main-Class': mainClassName,
+                    'version': version,
+            )
+        }
+    }
+
+    artifacts {
+        archives sourcesJar, javadocJar
+    }
+
+    signing {
+        sign configurations.archives
+    }
+
+    uploadArchives {
+        println "Configuring deployment for ${project.name}"
+        repositories {
+            mavenDeployer {
+                beforeDeployment { MavenDeployment deployment ->
+                    signing.signPom(deployment)
+                }
+
+                repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                pom.project {
+                    name = 'alloy-core'
+                    packaging = 'jar'
+                    description = 'Alloy core'
+                    url = 'https://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
+
+                    licenses {
+                        license {
+                            name = 'Eclipse Public License, Version 1.0'
+                            url = 'http://www.eclipse.org/org/documents/epl-v10.html'
+                        }
+                    }
+
+                    scm {
+                        connection = 'scm:git:git://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
+                        developerConnection = 'scm:git:git@github.com:hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
+                        url = 'https://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
+                    }
+
+
+                    developers {
+                        developer {
+                            id = 'JoshuaAtSTUPS'
+                            name = 'Joshua Schmidt'
+                            email = 'schmidt@cs.hhu.de'
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
