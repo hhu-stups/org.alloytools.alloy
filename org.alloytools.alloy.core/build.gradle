@@ -1,11 +1,9 @@
 apply plugin: 'java'
-apply plugin: 'maven'
-apply plugin: 'application'
+apply plugin: 'maven-publish'
+apply plugin: 'signing'
 
 group = 'de.hhu.stups'
-archivesBaseName = 'alloy-core'
 version = '5.1.0'
-mainClassName = 'org.alloytools.alloy.core.AlloyCore'
 
 buildscript {
     repositories {
@@ -48,80 +46,68 @@ compileJava.dependsOn(jflex)
 compileJava.dependsOn(cup)
 cup.dependsOn(jflex)
 
-if (project.hasProperty('ossrhUsername') && project.hasProperty('ossrhPassword')
-        && project.hasProperty("signing.keyId")) {
+java {
+    withJavadocJar()
+    withSourcesJar()
+}
 
-    apply plugin: 'signing'
-
-    task javadocJar(type: Jar) {
-        classifier = 'javadoc'
-        from javadoc
-    }
-
-    task sourcesJar(type: Jar) {
-        classifier = 'sources'
-        from sourceSets.main.allSource
-        manifest {
-            attributes(
-                    'Main-Class': mainClassName,
-                    'version': version,
-            )
-        }
-    }
-
-    artifacts {
-        archives sourcesJar, javadocJar
-    }
-
-    signing {
-        sign configurations.archives
-    }
-
-    uploadArchives {
-        println "Configuring deployment for ${project.name}"
-        repositories {
-            mavenDeployer {
-                beforeDeployment { MavenDeployment deployment ->
-                    signing.signPom(deployment)
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = 'alloy-core'
+            from components.java
+            versionMapping {
+                usage('java-api') {
+                    fromResolutionOf('runtimeClasspath')
                 }
-
-                repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2") {
-                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                usage('java-runtime') {
+                    fromResolutionResult()
                 }
+            }
+            pom {
+                name = 'Alloy Core'
+                description = 'The core of the Alloy tools'
+                url = 'https://github.com/hhu-stups/org.alloytools.alloy'
 
-                snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots") {
-                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
                 }
-
-                pom.project {
-                    name = 'alloy-core'
-                    packaging = 'jar'
-                    description = 'Alloy core'
-                    url = 'https://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
-
-                    licenses {
-                        license {
-                            name = 'Eclipse Public License, Version 1.0'
-                            url = 'http://www.eclipse.org/org/documents/epl-v10.html'
-                        }
+                developers {
+                    developer {
+                        id = 'JoshuaAtSTUPS'
+                        name = 'Joshua Schmidt'
+                        email = 'joshua.schmidt@hhu.de'
                     }
-
-                    scm {
-                        connection = 'scm:git:git://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
-                        developerConnection = 'scm:git:git@github.com:hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
-                        url = 'https://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
-                    }
-
-
-                    developers {
-                        developer {
-                            id = 'JoshuaAtSTUPS'
-                            name = 'Joshua Schmidt'
-                            email = 'joshua.schmidt@hhu.de'
-                        }
-                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
+                    developerConnection = 'scm:git:ssh://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
+                    url = 'http://github.com/hhu-stups/org.alloytools.alloy/tree/master/org.alloytools.alloy.core'
                 }
             }
         }
+    }
+    repositories {
+        maven {
+            url 'https://oss.sonatype.org/service/local/staging/deploy/maven2'
+            credentials {
+                username ossrhUsername
+                password ossrhPassword
+            }
+        }
+    }
+}
+
+signing {
+    sign publishing.publications.mavenJava
+}
+
+
+javadoc {
+    if(JavaVersion.current().isJava9Compatible()) {
+        options.addBooleanOption('html5', true)
     }
 }
