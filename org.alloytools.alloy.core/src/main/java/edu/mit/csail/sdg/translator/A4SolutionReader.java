@@ -23,6 +23,7 @@ import static edu.mit.csail.sdg.ast.Sig.UNIV;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -51,12 +52,16 @@ import kodkod.instance.TupleSet;
 /**
  * This helper class contains helper routines for reading an A4Solution object
  * from an XML file.
+ *
+ * @modified [electrum] incrementally builds a solution by iteratively reading
+ *           states from the XML; must start by collecting all used atoms, since
+ *           univ varies from state to state
  */
 
 public final class A4SolutionReader {
 
     /** The resulting A4Solution object. */
-    private final A4Solution          sol;
+    private A4Solution                sol;
 
     /** The provided choices of existing Sig and Field. */
     private final LinkedHashSet<Expr> choices = new LinkedHashSet<Expr>();
@@ -80,7 +85,7 @@ public final class A4SolutionReader {
     private final Map<Expr,TupleSet>  expr2ts = new LinkedHashMap<Expr,TupleSet>();
 
     /** The Kodkod tupleset factory. */
-    private final TupleFactory        factory;
+    private TupleFactory              factory;
 
     /**
      * Helper method that returns true if the given attribute value in the given XML
@@ -147,7 +152,8 @@ public final class A4SolutionReader {
     /** Parse sig/set. */
     private Sig parseSig(String id, int depth) throws IOException, Err {
         Sig ans = id2sig.get(id);
-        if (ans != null)
+        // [electrum] identify that has not been processed in this step (ans may be != null from previous steps)
+        if (ans != null && expr2ts.get(ans) != null)
             return ans;
         XMLNode node = nmap.get(id);
         if (node == null)
@@ -163,6 +169,7 @@ public final class A4SolutionReader {
         Attr isMeta = yes(node, "meta") ? Attr.META : null;
         Attr isEnum = yes(node, "enum") ? Attr.ENUM : null;
         Attr isExact = yes(node, "exact") ? Attr.EXACT : null;
+        Attr isVar = yes(node, "var") ? Attr.VARIABLE : null;
         if (yes(node, "builtin")) {
             if (label.equals(UNIV.label)) {
                 id2sig.put(id, UNIV);
@@ -210,7 +217,7 @@ public final class A4SolutionReader {
                     break;
                 }
             if (ans == null) {
-                ans = new PrimSig(label, (PrimSig) parent, isAbstract, isLone, isOne, isSome, isPrivate, isMeta, isEnum);
+                ans = new PrimSig(label, (PrimSig) parent, isAbstract, isLone, isOne, isSome, isPrivate, isMeta, isEnum, isVar);
                 allsigs.add(ans);
             }
         } else {
@@ -221,7 +228,7 @@ public final class A4SolutionReader {
                     break;
                 }
             if (ans == null) {
-                ans = new SubsetSig(label, parents, isExact, isLone, isOne, isSome, isPrivate, isMeta);
+                ans = new SubsetSig(label, parents, isExact, isLone, isOne, isSome, isPrivate, isMeta, isVar);
                 allsigs.add(ans);
             }
         }
@@ -271,6 +278,7 @@ public final class A4SolutionReader {
         String label = label(node);
         Pos isPrivate = yes(node, "private") ? Pos.UNKNOWN : null;
         Pos isMeta = yes(node, "meta") ? Pos.UNKNOWN : null;
+        Pos isVar = yes(node, "var") ? Pos.UNKNOWN : null;
         Expr type = null;
         for (XMLNode sub : node)
             if (sub.is("types")) {
@@ -295,8 +303,8 @@ public final class A4SolutionReader {
                 break;
             }
         if (field == null)
-            field = parent.addTrickyField(Pos.UNKNOWN, isPrivate, null, null, isMeta, new String[] {
-                                                                                                    label
+            field = parent.addTrickyField(Pos.UNKNOWN, isPrivate, null, null, isMeta, isVar, new String[] {
+                                                                                                           label
             }, UNIV.join(type))[0];
         TupleSet ts = parseTuples(node, arity);
         expr2ts.put(field, ts);
@@ -330,93 +338,161 @@ public final class A4SolutionReader {
     }
 
     /** Parse everything. */
+    // [electrum] heavily modified to support sequences of <instance> nodes, A4Solutions are built incrementally
     private A4SolutionReader(Iterable<Sig> sigs, XMLNode xml) throws IOException, Err {
-        for (Sig s : sigs)
-            if (!s.builtin) {
-                allsigs.add(s);
-                choices.add(s);
-                for (Field f : s.getFields())
-                    choices.add(f);
-            }
+        Map<ExprVar,String> skolemIds = new HashMap<>();
+        Map<Relation,ExprVar> skolemRels = new HashMap<>();
         // find <instance>..</instance>
         if (!xml.is("alloy"))
             throw new ErrorSyntax("The XML file's root node must be <alloy> or <instance>.");
         XMLNode inst = null;
+        A4Solution prev = null;
         for (XMLNode sub : xml)
             if (sub.is("instance")) {
                 inst = sub;
                 break;
             }
+
         if (inst == null)
             throw new ErrorSyntax("The XML file must contain an <instance> element.");
+
         // set up the basic values of the A4Solution object
         final int bitwidth = Integer.parseInt(inst.getAttribute("bitwidth"));
         final int maxseq = Integer.parseInt(inst.getAttribute("maxseq"));
+        final int tracelength;
+        final int backloop;
+        final int maxtrace;
+        final int mintrace;
+        try {
+            mintrace = Integer.parseInt(inst.getAttribute("mintrace"));
+            maxtrace = Integer.parseInt(inst.getAttribute("maxtrace"));
+            tracelength = Integer.parseInt(inst.getAttribute("tracelength"));
+            backloop = Integer.parseInt(inst.getAttribute("backloop"));
+        } catch (Exception ex) {
+            throw new ErrorSyntax("Missing trace attributes.");
+        }
         final int max = Util.max(bitwidth), min = Util.min(bitwidth);
         if (bitwidth >= 1 && bitwidth <= 30)
             for (int i = min; i <= max; i++) {
                 atoms.add(Integer.toString(i));
             }
-        for (XMLNode x : inst) {
-            String id = x.getAttribute("ID");
-            if (id.length() > 0 && (x.is("field") || x.is("skolem") || x.is("sig"))) {
-                if (nmap.put(id, x) != null)
-                    throw new IOException("ID " + id + " is repeated.");
-                if (x.is("sig")) {
-                    boolean isString = STRING.label.equals(label(x)) && yes(x, "builtin");
-                    for (XMLNode y : x)
-                        if (y.is("atom")) {
-                            String attr = y.getAttribute("label");
-                            atoms.add(attr);
-                            if (isString)
-                                strings.add(attr);
+
+        // [electrum] get all atoms of the universe, must traverse all states
+        for (XMLNode sub : xml)
+            if (sub.is("instance")) {
+                inst = sub;
+                for (XMLNode x : inst) {
+                    if (x.is("sig")) {
+                        boolean isString = STRING.label.equals(label(x)) && yes(x, "builtin");
+                        for (XMLNode y : x)
+                            if (y.is("atom")) {
+                                String attr = y.getAttribute("label");
+                                atoms.add(attr);
+                                if (isString)
+                                    strings.add(attr);
+                            }
+                    }
+                }
+            }
+
+        for (XMLNode sub : xml)
+            if (sub.is("instance")) {
+                inst = sub;
+
+                // [electrum] if not first step, retrieve already created sigs
+                prev = sol;
+                if (prev != null)
+                    sigs = prev.getAllReachableSigs();
+
+                for (Sig s : sigs)
+                    if (!s.builtin) {
+                        allsigs.add(s);
+                        choices.add(s);
+                        for (Field f : s.getFields())
+                            choices.add(f);
+                    }
+
+                nmap.clear();
+                expr2ts.clear();
+                for (XMLNode x : inst) {
+                    String id = x.getAttribute("ID");
+                    if (id.length() > 0 && (x.is("field") || x.is("skolem") || x.is("sig"))) {
+                        if (nmap.put(id, x) != null)
+                            throw new IOException("ID " + id + " is repeated.");
+                    }
+                }
+
+                // create the A4Solution object
+                A4Options opt = new A4Options();
+                opt.originalFilename = inst.getAttribute("filename");
+                // [electrum] do not use actual max trace, solution would identify unbounded solving but no unbounded solver
+                sol = new A4Solution(inst.getAttribute("command"), bitwidth, Math.min(tracelength, mintrace), Math.min(tracelength, maxtrace), maxseq, strings, atoms, null, opt, 1);
+                factory = sol.getFactory();
+                // parse all the sigs, fields, and skolems
+                for (Map.Entry<String,XMLNode> e : nmap.entrySet())
+                    if (e.getValue().is("sig"))
+                        parseSig(e.getKey(), 0);
+                for (Map.Entry<String,XMLNode> e : nmap.entrySet())
+                    if (e.getValue().is("field"))
+                        parseField(e.getKey());
+                for (Map.Entry<String,XMLNode> e : nmap.entrySet())
+                    if (e.getValue().is("skolem")) {
+                        ExprVar v = parseSkolem(e.getKey());
+                        skolemIds.put(v, e.getKey());
+                    }
+                for (Sig s : allsigs)
+                    if (!s.builtin) {
+                        TupleSet ts = expr2ts.remove(s);
+                        if (ts == null)
+                            ts = factory.noneOf(1); // If the sig was NOT mentioned in the XML file...
+                        Relation r;
+                        // [electrum] if first state create the relation
+                        if (prev == null)
+                            r = sol.addRel(s.label, ts, ts, s.isVariable != null);
+                        // [electrum] otherwise use previously created
+                        else {
+                            r = (Relation) prev.a2k(s);
+                            sol.addPreRel(s.label, ts, ts, r);
                         }
+                        sol.addSig(s, r);
+                        for (Field f : s.getFields()) {
+                            ts = expr2ts.remove(f);
+                            if (ts == null)
+                                ts = factory.noneOf(f.type().arity()); // If the field was NOT mentioned in the XML file...
+                            // [electrum] if first state create the relation
+                            if (prev == null)
+                                r = sol.addRel(s.label + "." + f.label, ts, ts, f.isVariable != null);
+                            // [electrum] otherwise use previously created
+                            else {
+                                r = (Relation) prev.a2k(f);
+                                sol.addPreRel(s.label + "." + f.label, ts, ts, r);
+                            }
+                            sol.addField(f, r);
+                        }
+                    }
+                for (Map.Entry<Expr,TupleSet> e : expr2ts.entrySet()) {
+                    ExprVar v = (ExprVar) (e.getKey());
+                    TupleSet ts = e.getValue();
+                    Relation r = null;
+                    if (prev == null) {
+                        r = sol.addRel(v.label, ts, ts, true);
+                        skolemRels.put(r, v);
+                    } else {
+                        // [electrum] search for skolem relation, must use id since skolems may be renamed at A4Solution
+                        for (Expr exp : prev.getAllSkolems()) {
+                            ExprVar x = skolemRels.get(prev.a2k(exp));
+                            if (skolemIds.get(x).equals(skolemIds.get(v))) {
+                                r = (Relation) prev.a2k(exp);
+                                break;
+                            }
+                        }
+                        sol.addPreRel(v.label, ts, ts, r);
+                    }
+                    sol.kr2type(r, v.type());
                 }
+                // Done!
+                sol.solve(null, prev, backloop); // [electrum] merge current solution with previous, if any
             }
-        }
-        // create the A4Solution object
-        A4Options opt = new A4Options();
-        opt.originalFilename = inst.getAttribute("filename");
-        sol = new A4Solution(inst.getAttribute("command"), bitwidth, maxseq, strings, atoms, null, opt, 1);
-        factory = sol.getFactory();
-        // parse all the sigs, fields, and skolems
-        for (Map.Entry<String,XMLNode> e : nmap.entrySet())
-            if (e.getValue().is("sig"))
-                parseSig(e.getKey(), 0);
-        for (Map.Entry<String,XMLNode> e : nmap.entrySet())
-            if (e.getValue().is("field"))
-                parseField(e.getKey());
-        for (Map.Entry<String,XMLNode> e : nmap.entrySet())
-            if (e.getValue().is("skolem"))
-                parseSkolem(e.getKey());
-        for (Sig s : allsigs)
-            if (!s.builtin) {
-                TupleSet ts = expr2ts.remove(s);
-                if (ts == null)
-                    ts = factory.noneOf(1); // If the sig was NOT mentioned in
-                                           // the XML file...
-                Relation r = sol.addRel(s.label, ts, ts);
-                sol.addSig(s, r);
-                for (Field f : s.getFields()) {
-                    ts = expr2ts.remove(f);
-                    if (ts == null)
-                        ts = factory.noneOf(f.type().arity()); // If the field
-                                                              // was NOT
-                                                              // mentioned in
-                                                              // the XML
-                                                              // file...
-                    r = sol.addRel(s.label + "." + f.label, ts, ts);
-                    sol.addField(f, r);
-                }
-            }
-        for (Map.Entry<Expr,TupleSet> e : expr2ts.entrySet()) {
-            ExprVar v = (ExprVar) (e.getKey());
-            TupleSet ts = e.getValue();
-            Relation r = sol.addRel(v.label, ts, ts);
-            sol.kr2type(r, v.type());
-        }
-        // Done!
-        sol.solve(null, null, null, false);
     }
 
     /**

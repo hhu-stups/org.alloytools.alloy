@@ -1,6 +1,8 @@
 package edu.mit.csail.sdg.alloy4;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,9 +23,15 @@ import edu.mit.csail.sdg.translator.A4Solution;
 import edu.mit.csail.sdg.translator.A4Tuple;
 import edu.mit.csail.sdg.translator.A4TupleSet;
 import kodkod.instance.Instance;
+import kodkod.instance.TemporalInstance;
 import kodkod.instance.Tuple;
 import kodkod.instance.TupleSet;
 
+/**
+ *
+ * @modified [electrum] adapted to focus on particular state
+ *
+ */
 public class TableView {
 
     final static String  SUPERSCRIPTS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
@@ -138,9 +146,11 @@ public class TableView {
      * @param solution
      * @param instance
      * @param sigs
+     * @param state
      * @return
      */
-    public static Map<String,Table> toTable(A4Solution solution, Instance instance, SafeList<Sig> sigs) {
+    // [electrum] added state to print, -1 for static
+    public static Map<String,Table> toTable(A4Solution solution, Instance instance, SafeList<Sig> sigs, int state) {
 
         Map<String,Table> map = new HashMap<String,Table>();
 
@@ -149,10 +159,28 @@ public class TableView {
             if (!s.label.startsWith("this/"))
                 continue;
 
-            TupleSet instanceTuples = instance.tuples(s.label);
+            TupleSet instanceTuples = (state > -1 ? ((TemporalInstance) instance).state(state) : instance).tuples(s.label);
             if (instanceTuples != null) {
 
-                SimTupleset sigInstances = toSimTupleset(instanceTuples);
+                List<SimTuple> instancesArray = toList(instanceTuples);
+                Collections.sort(instancesArray, new Comparator<SimTuple>() {
+
+                    @Override
+                    public int compare(SimTuple simTuple1, SimTuple simTuple2) {
+                        String[] coll1 = simTuple1.get(0).toString().split("\\$");
+                        String[] coll2 = simTuple2.get(0).toString().split("\\$");
+                        if (coll1.length == 2 && coll2.length == 2) {
+                            try {
+                                return Integer.parseInt(coll1[1]) - Integer.parseInt(coll2[1]);
+                            } catch (NumberFormatException e) {
+                                return 0;
+                            }
+                        }
+                        return 0;
+                    }
+                });
+
+                SimTupleset sigInstances = SimTupleset.make(instancesArray);
                 Table table = new Table(sigInstances.size() + 1, s.getFields().size() + 1, 1);
                 table.set(0, 0, s.label);
 
@@ -174,7 +202,7 @@ public class TableView {
                     c = 1;
                     for (Field f : s.getFields()) {
 
-                        SimTupleset relations = toSimTupleset(solution.eval(f));
+                        SimTupleset relations = toSimTupleset(state > -1 ? solution.eval(f, state) : solution.eval(f));
                         SimTupleset joined = leftJoin.join(relations);
 
                         Table relationTable = toTable(joined);
@@ -253,6 +281,14 @@ public class TableView {
             atoms.add(atom);
         }
         return SimTuple.make(atoms);
+    }
+
+    private static List<SimTuple> toList(TupleSet tupleSet) {
+        List<SimTuple> l = new ArrayList<>(tupleSet.size());
+        for (Tuple tuple : tupleSet) {
+            l.add(toSimTuple(tuple));
+        }
+        return l;
     }
 
     private static SimTupleset toSimTupleset(TupleSet tupleSet) {

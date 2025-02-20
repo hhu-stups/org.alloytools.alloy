@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import javax.swing.Icon;
+import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 
@@ -40,6 +41,8 @@ import edu.mit.csail.sdg.alloy4graph.DotStyle;
  * customization.
  * <p>
  * <b>Thread Safety:</b> Can be called only by the AWT event thread.
+ *
+ * @modified [electrum] apply a default style to mutable elements (dashed)
  */
 
 public final class VizState {
@@ -84,6 +87,7 @@ public final class VizState {
         edgeStyle.putAll(old.edgeStyle);
         edgeVisible.putAll(old.edgeVisible);
         changedSinceLastSave = false;
+        applyDefaultVar();
     }
 
     /** Clears the current theme. */
@@ -154,9 +158,27 @@ public final class VizState {
         edgeColor.put(in, DotColor.BLACK);
         weight.put(in, 100);
         layoutBack.put(in, true);
+        applyDefaultVar(); // [electrum] dashed style for variable elements
         // Done
         cache.clear();
         changedSinceLastSave = false;
+    }
+
+    /**
+     * Paints variable items as dashed if no other style has been set by the user.
+     * Must be run every time since new elements may have been introduced.
+     */
+    void applyDefaultVar() {
+        // if parent also var or has style, inherit, otherwise paint dashed
+        for (AlloyType r : currentModel.getTypes())
+            if (nodeStyle.get(r) == null && r.isVar && !(currentModel.getSuperType(r).isVar || nodeStyle.get(currentModel.getSuperType(r)) != null))
+                nodeStyle.put(r, DotStyle.DASHED);
+        for (AlloyRelation r : currentModel.getRelations())
+            if (edgeStyle.get(r) == null && r.isVar)
+                edgeStyle.put(r, DotStyle.DASHED);
+        for (AlloySet r : currentModel.getSets())
+            if (nodeStyle.get(r) == null && r.isVar && !(r.getType().isVar || nodeStyle.get(r.getType()) != null))
+                nodeStyle.put(r, DotStyle.DASHED);
     }
 
     /**
@@ -202,13 +224,13 @@ public final class VizState {
      * Generate a VizGraphPanel for a given projection choice, using the current
      * settings.
      */
-    public JPanel getGraph(AlloyProjection projectionChoice) {
+    public JPanel getGraph(JFrame parent, AlloyProjection projectionChoice) {
         JPanel ans = cache.get(projectionChoice);
         if (ans != null)
             return ans;
         AlloyInstance inst = originalInstance;
         try {
-            ans = StaticGraphMaker.produceGraph(inst, this, projectionChoice);
+            ans = StaticGraphMaker.produceGraph(parent, inst, this, projectionChoice);
             cache.put(projectionChoice, ans);
         } catch (Throwable ex) {
             String msg = "An error has occurred: " + ex + "\n\nStackTrace:\n" + MailBug.dump(ex) + "\n";
@@ -322,7 +344,7 @@ public final class VizState {
      * Returns true iff the type is not univ, and it is a toplevel type.
      */
     public boolean canProject(final AlloyType type) {
-        return isTopLevel(type);
+        return isTopLevel(type) && !type.isVar; // [electrum] can't project over mutable variable
     }
 
     /**
