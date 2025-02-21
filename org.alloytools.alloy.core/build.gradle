@@ -1,54 +1,32 @@
-apply plugin: 'java'
-apply plugin: 'maven-publish'
-apply plugin: 'signing'
-
-group = 'de.hhu.stups'
-version = '5.1.0'
-
-buildscript {
-    repositories {
-        mavenCentral()
-    }
+plugins {
+    id 'java'
+    id 'maven-publish'
+    id 'signing'
 }
 
-allprojects {
-    tasks.withType(Javadoc) {
-        options.addStringOption('Xdoclint:none', '-quiet')
-    }
+project.group = "de.hhu.stups"
+project.version = "6.0.0-SNAPSHOT"
+
+final isSnapshot = project.version.endsWith("-SNAPSHOT")
+
+repositories {
+    mavenCentral()
 }
-
-task jflex(type: JavaExec) {
-    inputs.files("src/main/java/edu/mit/csail/sdg/parser/Alloy.lex")
-    outputs.files("src/main/java/edu/mit/csail/sdg/parser/CompLexer.java")
-
-    classpath file( '../cnf/jars/JFlex.jar' )
-    main = 'JFlex.Main'
-    args ("-d","src/main/java/edu/mit/csail/sdg/parser","-nobak","src/main/java/edu/mit/csail/sdg/parser/Alloy.lex")
-}
-
-task cup(type: JavaExec ) {
-
-    inputs.files("src/main/java/edu/mit/csail/sdg/parser/Alloy.cup")
-    outputs.files("src/main/java/edu/mit/csail/sdg/parser/CompParser.java", "src/main/java/edu/mit/csail/sdg/parser/CompSym.java")
-
-    classpath file( '../cnf/jars/java-cup-11a.jar' )
-    main = 'java_cup.Main'
-    workingDir( "src/main/java/edu/mit/csail/sdg/parser")
-    args(
-            "-parser", "CompParser",
-            "-symbols", "CompSym",
-            "-progress",
-            "-time",
-            "-compact_red",
-            "Alloy.cup")
-}
-compileJava.dependsOn(jflex)
-compileJava.dependsOn(cup)
-cup.dependsOn(jflex)
 
 java {
-    withJavadocJar()
+    sourceCompatibility = JavaVersion.VERSION_1_8
+
     withSourcesJar()
+    withJavadocJar()
+}
+
+sourcesJar {
+    mustRunAfter "generate"
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+javadoc {
+    failOnError = false
 }
 
 publishing {
@@ -90,24 +68,24 @@ publishing {
             }
         }
     }
+
     repositories {
         maven {
-            url 'https://oss.sonatype.org/service/local/staging/deploy/maven2'
-            credentials {
-                username ossrhUsername
-                password ossrhPassword
+            final releasesRepoUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2"
+            final snapshotsRepoUrl = "https://oss.sonatype.org/content/repositories/snapshots"
+            url isSnapshot ? snapshotsRepoUrl : releasesRepoUrl
+            if (project.hasProperty("ossrhUsername") && project.hasProperty("ossrhPassword")) {
+                credentials {
+                    username project.ossrhUsername
+                    password project.ossrhPassword
+                }
             }
         }
     }
 }
 
+ext."signing.secretKeyRingFile" = project.file("secring.gpg").absolutePath
+
 signing {
     sign publishing.publications.mavenJava
-}
-
-
-javadoc {
-    if(JavaVersion.current().isJava9Compatible()) {
-        options.addBooleanOption('html5', true)
-    }
 }
