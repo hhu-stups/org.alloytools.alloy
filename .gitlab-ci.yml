@@ -1,0 +1,22 @@
+image: eclipse-temurin:8
+
+variables:
+  GRADLE_ARGS: --no-daemon --stacktrace --warning-mode=all
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+cache:
+  paths:
+    - .gradle/caches
+    - .gradle/notifications
+    - .gradle/wrapper
+
+publish:
+  stage: deploy
+  script:
+    - cd org.alloytools.alloy.core
+    - openssl aes-256-cbc -d -base64 -pbkdf2 -pass "env:ENCRYPTION_PASSWORD" -in gradle.properties.enc -out gradle.properties
+    - openssl aes-256-cbc -d -base64 -pbkdf2 -pass "env:ENCRYPTION_PASSWORD" -in pubring.gpg.enc -out pubring.gpg
+    - openssl aes-256-cbc -d -base64 -pbkdf2 -pass "env:ENCRYPTION_PASSWORD" -in secring.gpg.enc -out secring.gpg
+    - ../gradlew ${GRADLE_ARGS} publish
+  only:
+    - master@general/stups/alloy-core
