@@ -1,7 +1,7 @@
 module util/graph[node]
 
 /*
- * Utilities for some common operations and contraints
+ * Utilities for some common operations and constraints
  * on graphs.
  *
  * author: Greg Dennis
@@ -67,7 +67,7 @@ fun roots [r: node->node] : set node {
   node - node.^r
 }
 
-/** returns the leaves of the grpah */
+/** returns the leaves of the graph */
 fun leaves [r: node->node] : set node {
   node - node.^~r
 }

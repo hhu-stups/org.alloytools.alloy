@@ -78,7 +78,7 @@ import edu.mit.csail.sdg.translator.TranslateAlloyToKodkod;
  *           parallel problem)
  */
 
-final class SimpleReporter extends A4Reporter {
+public final class SimpleReporter extends A4Reporter {
 
     public static final class SimpleCallback1 implements WorkerCallback {
 
@@ -217,7 +217,11 @@ final class SimpleReporter extends A4Reporter {
             if (array[0].equals("resultCNF")) {
                 results.add(null);
                 span.setLength(len3);
-                span.log("   File written to " + array[1] + "\n\n");
+                span.log("   File written to ");
+                String linkDestination = "CNF: " + array[1];
+                span.logLink(array[1].toString(), linkDestination);
+                span.log("\n\n");
+                gui.doSetLatest(linkDestination);
             }
             if (array[0].equals("debug") && verbosity > 2) {
                 span.log("   " + array[1] + "\n");
@@ -339,6 +343,7 @@ final class SimpleReporter extends A4Reporter {
             span.flush();
         }
     }
+
 
     private void cb(Serializable... objs) {
         cb.callback(objs);
@@ -601,7 +606,7 @@ final class SimpleReporter extends A4Reporter {
     private int warn = 0;
 
     /** Task that performs solution enumeration. */
-    static final class SimpleTask2 implements WorkerTask {
+    public static final class SimpleTask2 implements WorkerTask {
 
         private static final long       serialVersionUID = 0;
         public int                      index            = -1; // [electrum] registers which iteration operation to perform
@@ -683,7 +688,7 @@ final class SimpleReporter extends A4Reporter {
     }
 
     /** Task that perform one command. */
-    static final class SimpleTask1 implements WorkerTask {
+    public static final class SimpleTask1 implements WorkerTask {
 
         private static final long serialVersionUID = 0;
         public A4Options          options;
@@ -701,6 +706,7 @@ final class SimpleReporter extends A4Reporter {
 
         @Override
         public void run(WorkerCallback out) throws Exception {
+            boolean transformer = false;
             cb(out, "S2", "Starting the solver...\n\n");
             final SimpleReporter rep = new SimpleReporter(out, options.recordKodkod);
             final Module world = CompUtil.parseEverything_fromFile(rep, map, options.originalFilename, resolutionMode);
@@ -749,51 +755,54 @@ final class SimpleReporter extends A4Reporter {
                             result.add(tempXML);
                         else if (ai.highLevelCore().a.size() > 0)
                             result.add(tempCNF + ".core");
-                        else
+                        else {
+                            transformer |= ai.opt.solver.isTransformer();
                             result.add("");
+                        }
                     }
             (new File(tempdir)).delete(); // In case it was UNSAT, or
                                          // canceled...
-            if (result.size() > 1) {
+            if (!transformer && result.size() > 1) {
                 rep.cb("bold", "" + result.size() + " commands were executed. The results are:\n");
                 for (int i = 0; i < result.size(); i++) {
                     Command r = world.getAllCommands().get(i);
                     if (result.get(i) == null) {
-                        rep.cb("", "   #" + (i + 1) + ": Unknown.\n");
                         continue;
                     }
+                    StringBuilder sb = new StringBuilder();
                     if (result.get(i).endsWith(".xml")) {
                         rep.cb("", "   #" + (i + 1) + ": ");
                         rep.cb("link", r.check ? "Counterexample found. " : "Instance found. ", "XML: " + result.get(i));
-                        rep.cb("", r.label + (r.check ? " is invalid" : " is consistent"));
+                        sb.append(r.label + (r.check ? " is invalid" : " is consistent"));
                         if (r.expects == 0)
-                            rep.cb("", ", contrary to expectation");
+                        	sb.append(", contrary to expectation");
                         else if (r.expects == 1)
-                            rep.cb("", ", as expected");
+                        	sb.append(", as expected");
                     } else if (result.get(i).endsWith(".core")) {
                         rep.cb("", "   #" + (i + 1) + ": ");
                         rep.cb("link", r.check ? "No counterexample found. " : "No instance found. ", "CORE: " + result.get(i));
-                        rep.cb("", r.label + (r.check ? " may be valid" : " may be inconsistent"));
+                        sb.append(r.label + (r.check ? " may be valid" : " may be inconsistent"));
                         if (r.expects == 1)
-                            rep.cb("", ", contrary to expectation");
+                        	sb.append(", contrary to expectation");
                         else if (r.expects == 0)
-                            rep.cb("", ", as expected");
+                        	sb.append(", as expected");
                     } else {
                         if (r.check)
-                            rep.cb("", "   #" + (i + 1) + ": No counterexample found. " + r.label + " may be valid");
+                        	sb.append("   #" + (i + 1) + ": No counterexample found. " + r.label + " may be valid");
                         else
-                            rep.cb("", "   #" + (i + 1) + ": No instance found. " + r.label + " may be inconsistent");
+                        	sb.append("   #" + (i + 1) + ": No instance found. " + r.label + " may be inconsistent");
                         if (r.expects == 1)
-                            rep.cb("", ", contrary to expectation");
+                        	sb.append(", contrary to expectation");
                         else if (r.expects == 0)
-                            rep.cb("", ", as expected");
+                        	sb.append(", as expected");
                     }
-                    rep.cb("", ".\n");
+                    sb.append(".\n");
+                    rep.cb("", sb.toString());
                 }
                 rep.cb("", "\n");
             }
             if (rep.warn > 1)
-                rep.cb("bold", "Note: There were " + rep.warn + " compilation warnings. Please scroll up to see them.\n");
+                rep.cb("bold", "Note: There were " + rep.warn + " compilation warnings.\n");
             if (rep.warn == 1)
                 rep.cb("bold", "Note: There was 1 compilation warning. Please scroll up to see it.\n");
 

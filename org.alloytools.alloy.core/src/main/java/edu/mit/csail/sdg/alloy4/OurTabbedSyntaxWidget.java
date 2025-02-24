@@ -27,12 +27,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTextPane;
 import javax.swing.ScrollPaneConstants;
 
 import edu.mit.csail.sdg.alloy4.Listener.Event;
@@ -84,6 +86,11 @@ public final class OurTabbedSyntaxWidget {
      * Whether syntax highlighting is current enabled or not.
      */
     private boolean                     syntaxHighlighting;
+
+    /**
+     * Whether line numbers are currently enable to displayr or not.
+     */
+    private boolean                     lineNumbers;
 
     /** The list of clickable tabs. */
     private final JPanel                tabBar;
@@ -144,6 +151,8 @@ public final class OurTabbedSyntaxWidget {
                                                                                  }
                                                                                  listeners.fire(me, Event.STATUS_CHANGE);
                                                                                  break;
+                                                                             default :
+                                                                                 break;
                                                                          }
                                                                      return true;
                                                                  }
@@ -157,7 +166,7 @@ public final class OurTabbedSyntaxWidget {
     private final JFrame                parent;
 
     /** Constructs a tabbed editor pane. */
-    public OurTabbedSyntaxWidget(String fontName, int fontSize, int tabSize, JFrame parent) {
+    public OurTabbedSyntaxWidget(String fontName, int fontSize, int tabSize, boolean lineNumbers, JFrame parent) {
         this.parent = parent;
         component.setBorder(null);
         component.setLayout(new BorderLayout());
@@ -174,6 +183,7 @@ public final class OurTabbedSyntaxWidget {
         tabBarScroller.setFocusable(false);
         tabBarScroller.setBorder(null);
         setFont(fontName, fontSize, tabSize);
+        this.lineNumbers = lineNumbers;
         newtab(null);
         tabBarScroller.addComponentListener(new ComponentListener() {
 
@@ -245,10 +255,12 @@ public final class OurTabbedSyntaxWidget {
             component.add(tabBarScroller, BorderLayout.NORTH);
         tabs.get(me).addTo(component, BorderLayout.CENTER);
         component.repaint();
-        tabs.get(me).requestFocusInWindow();
         tabBar.scrollRectToVisible(new Rectangle(0, 0, 0, 0)); // Forces
                                                               // recalculation
         tabBar.scrollRectToVisible(new Rectangle(tabs.get(me).obj2.getX(), 0, tabs.get(me).obj2.getWidth() + 200, 1));
+        tabs.get(me).requestFocusInWindow();
+        tabs.get(me).getTextPane().grabFocus();
+
         listeners.fire(this, Event.STATUS_CHANGE);
     }
 
@@ -377,9 +389,16 @@ public final class OurTabbedSyntaxWidget {
             t.enableSyntax(flag);
     }
 
+    public void enableLineNumbers(boolean flag) {
+        lineNumbers = flag;
+        for (OurSyntaxWidget t : tabs) {
+            t.enableLineNumbers(flag);
+        }
+    }
+
     /** Returns the JTextArea of the current text buffer. */
     public OurSyntaxWidget get() {
-        return (me >= 0 && me < tabs.size()) ? tabs.get(me) : new OurSyntaxWidget(this);
+        return (me >= 0 && me < tabs.size()) ? tabs.get(me) : new OurSyntaxWidget(this, syntaxHighlighting, "", fontName, fontSize, tabSize, lineNumbers, null, null);
     }
 
     /**
@@ -438,7 +457,7 @@ public final class OurTabbedSyntaxWidget {
         JPanel pan = Util.onMac() ? OurUtil.makeVL(null, 2, OurUtil.makeHB(h1, lb, h2)) : OurUtil.makeVL(null, 2, OurUtil.makeHB(h1, lb, h2, GRAY), GRAY);
         pan.setAlignmentX(0.0f);
         pan.setAlignmentY(1.0f);
-        OurSyntaxWidget text = new OurSyntaxWidget(this, syntaxHighlighting, "", fontName, fontSize, tabSize, lb, pan);
+        OurSyntaxWidget text = new OurSyntaxWidget(this, syntaxHighlighting, "", fontName, fontSize, tabSize, lineNumbers, lb, pan);
         tabBar.add(pan, tabs.size());
         tabs.add(text);
         text.listeners.add(listener); // add listener AFTER we've updated
@@ -519,5 +538,60 @@ public final class OurTabbedSyntaxWidget {
 
     public JFrame getParent() {
         return parent;
+    }
+
+    /**
+     * Return the tab by an index that assumes the current tab is 0. I.e. the tab is
+     * (me+n) % tabs.size(). If n >= size, return empty.
+     *
+     * @param n the tab number, must be less than tabs
+     */
+    public Optional<OurSyntaxWidget> selectModulo(int n) {
+        if (n >= tabs.size())
+            return Optional.empty();
+
+        int tab = (me + n) % tabs.size();
+        return Optional.ofNullable(tabs.get(tab));
+    }
+
+    /**
+     * Select the tab with the given textpane
+     *
+     * @param p the text pane
+     * @return true if the text pane was found and is now the current tab
+     */
+    public boolean select(JTextPane p) {
+        OurSyntaxWidget osw = findByTextPane(p);
+        if (osw == null)
+            return false;
+
+        select(osw);
+        return true;
+    }
+
+    /**
+     * Select the given OurSyntaxWidget as the current tab
+     *
+     * @param osw the widget to select
+     * @return true if this is now the current tab
+     */
+    private boolean select(OurSyntaxWidget osw) {
+        int tab = tabs.indexOf(osw);
+        if (tab < 0)
+            return false;
+        if (tab == me)
+            return false;
+        select(tab);
+        return true;
+    }
+
+    /**
+     * Find the OurSyntaxWidget with the given textpane p
+     *
+     * @param p the text pane we want
+     * @return the widget or null
+     */
+    public OurSyntaxWidget findByTextPane(JTextPane p) {
+        return tabs.stream().filter(oswp -> oswp.getTextPane() == p).findAny().orElse(null);
     }
 }

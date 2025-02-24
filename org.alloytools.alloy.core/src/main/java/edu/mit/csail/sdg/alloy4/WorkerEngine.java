@@ -26,9 +26,14 @@ import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.Serializable;
+import java.lang.ProcessHandle.Info;
 import java.lang.Thread.UncaughtExceptionHandler;
 
 import org.alloytools.alloy.core.AlloyCore;
+import org.alloytools.alloy.core.infra.Alloy;
+
+import kodkod.engine.satlab.SATFactory;
+import kodkod.solvers.api.NativeCode;
 
 /**
  * This class allows you to execute tasks in a subprocess, and receive its
@@ -248,8 +253,6 @@ public final class WorkerEngine {
      * @param newstack - the amount of stack (in kilobytes) we want the subprocess
      *            to have (if the subproces has not terminated, then this parameter
      *            is ignored)
-     * @param jniPath - if nonnull and nonempty, then it specifies the subprocess's
-     *            default JNI library location
      * @param classPath - if nonnull and nonempty, then it specifies the
      *            subprocess's default CLASSPATH, else we'll use
      *            System.getProperty("java.class.path")
@@ -258,30 +261,23 @@ public final class WorkerEngine {
      * @throws IOException - if an error occurred in launching a sub JVM or talking
      *             to it
      */
-    public static void run(final WorkerTask task, int newmem, int newstack, String jniPath, String classPath, final WorkerCallback callback) throws IOException {
-        String java = "java";
-        String javahome = System.getProperty("java.home");
-        if (javahome == null)
-            throw new IllegalArgumentException("java.home not set");
+    public static void run(final WorkerTask task, int newmem, int newstack, String classPath, final WorkerCallback callback) throws IOException {
+        SATFactory.getSolvers(); // init native code
 
-        File jhome = new File(javahome);
-
-        if (classPath == null || classPath.isEmpty())
-            classPath = System.getProperty("java.class.path");
-
-        if (classPath == null || classPath.isEmpty()) {
-            File dist = findInAncestors(jhome, "org.alloytools.alloy.dist.jar");
-            if (dist == null) {
-                throw new IllegalArgumentException("cannot establish classpath. Neither set for this java nor \"org.alloytools.alloy.dist.jar\" in an ancestor directory of $JAVA_HOME (" + jhome + ")");
-            }
-            System.out.println("Found jar in ancestors java_home " + dist);
-            classPath = dist.getAbsolutePath();
+        String cmdline[];
+        boolean fork = Boolean.getBoolean("alloy.fork");
+        if (fork) {
+            cmdline = getForkCommandLine();
+        } else {
+            cmdline = getJarCommandLine(classPath, newmem, newstack);
         }
+
 
         synchronized (WorkerEngine.class) {
             final Process sub;
             if (latest_manager != null && latest_manager.isAlive())
                 throw new IOException("Subprocess still performing the last task.");
+
             try {
                 if (latest_sub != null)
                     latest_sub.exitValue();
@@ -289,25 +285,9 @@ public final class WorkerEngine {
                 latest_sub = null;
             } catch (IllegalThreadStateException ex) {
             }
+
             if (latest_sub == null) {
-                File f = new File(javahome + File.separatorChar + "bin" + File.separatorChar + "java");
-
-                if (!f.isFile())
-                    f = new File(javahome + File.separatorChar + "java");
-
-                if (f.isFile())
-                    java = f.getAbsolutePath();
-
-                String debug = AlloyCore.isDebug() ? "yes" : "no";
-
-                if (jniPath != null && jniPath.length() > 0)
-                    sub = Runtime.getRuntime().exec(new String[] {
-                                                                  java, "-Xmx" + newmem + "m", "-Xss" + newstack + "k", "-Djava.library.path=" + jniPath, "-Ddebug=" + debug, "-cp", classPath, WorkerEngine.class.getName(), Version.buildDate(), "" + Version.buildNumber()
-                    });
-                else
-                    sub = Runtime.getRuntime().exec(new String[] {
-                                                                  java, "-Xmx" + newmem + "m", "-Xss" + newstack + "k", "-Ddebug=" + debug, "-cp", classPath, WorkerEngine.class.getName(), Version.buildDate(), "" + Version.buildNumber()
-                    });
+                sub = Runtime.getRuntime().exec(cmdline);
                 latest_sub = sub;
             } else {
                 sub = latest_sub;
@@ -368,6 +348,52 @@ public final class WorkerEngine {
         }
     }
 
+    private static String[] getForkCommandLine() {
+        ProcessHandle current = ProcessHandle.current();
+        Info info = current.info();
+        String commandPath = info.command().orElseThrow(() -> new IllegalStateException("cannot fork the command because the path to the executable is unknown"));
+        return new String[] {
+                             commandPath, "_worker", Version.buildDate(), "" + Version.buildNumber()
+        };
+    }
+
+    private static String[] getJarCommandLine(String classPath, int newmem, int newstack) {
+        String java = "java";
+        String javahome = System.getProperty("java.home");
+        if (javahome == null)
+            throw new IllegalArgumentException("java.home not set");
+
+        File jhome = new File(javahome);
+
+        if (classPath == null || classPath.isEmpty())
+            classPath = System.getProperty("java.class.path");
+
+        if (classPath == null || classPath.isEmpty()) {
+            File dist = findInAncestors(jhome, "org.alloytools.alloy.dist.jar");
+            if (dist == null) {
+                throw new IllegalArgumentException("cannot establish classpath. Neither set for this java nor \"org.alloytools.alloy.dist.jar\" in an ancestor directory of $JAVA_HOME (" + jhome + ")");
+            }
+            System.out.println("Found jar in ancestors java_home " + dist);
+            classPath = dist.getAbsolutePath();
+        }
+        File f = new File(javahome + File.separatorChar + "bin" + File.separatorChar + "java");
+
+        if (!f.isFile())
+            f = new File(javahome + File.separatorChar + "java");
+
+        if (f.isFile())
+            java = f.getAbsolutePath();
+
+        String debug = AlloyCore.isDebug() ? "yes" : "no";
+        String main = Alloy.class.getName();
+
+        return new String[] {
+                             java,
+                             // "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5006",
+                             "-Xmx" + newmem + "m", "-Xss" + newstack + "k", "-Djava.library.path=" + NativeCode.getLibraryPath(), "-Ddebug=" + debug, "-cp", classPath, WorkerEngine.class.getName(), Version.buildDate(), "" + Version.buildNumber()
+        };
+    }
+
     /**
      * This is the entry point for the sub JVM.
      * <p>
@@ -404,20 +430,7 @@ public final class WorkerEngine {
         System.setErr(new PrintStream(wrap((OutputStream) null)));
         final FileInputStream in = new FileInputStream(FileDescriptor.in);
         final FileOutputStream out = new FileOutputStream(FileDescriptor.out);
-        // Preload these 3 libraries; on MS Windows with JDK 1.6 this seems to
-        // prevent freezes
-        try {
-            System.loadLibrary("minisat");
-        } catch (Throwable ex) {
-        }
-        try {
-            System.loadLibrary("minisatprover");
-        } catch (Throwable ex) {
-        }
-        try {
-            System.loadLibrary("zchaff");
-        } catch (Throwable ex) {
-        }
+
         // Now we repeat the following read-then-execute loop
         Thread t = null;
         while (true) {

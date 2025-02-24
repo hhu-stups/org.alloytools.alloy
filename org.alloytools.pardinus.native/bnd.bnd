@@ -1,0 +1,6 @@
+-includeresource \
+    native=native, \
+    LICENSES=LICENSES
+-buildpath: \
+	org.alloytools.pardinus.core,\
+	biz.aQute.bnd.annotation

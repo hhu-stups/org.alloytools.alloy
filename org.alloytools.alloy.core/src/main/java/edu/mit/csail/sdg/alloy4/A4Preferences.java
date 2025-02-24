@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.prefs.Preferences;
 
 import javax.swing.AbstractAction;
@@ -28,7 +29,7 @@ import javax.swing.Action;
 import javax.swing.DefaultSingleSelectionModel;
 import javax.swing.Icon;
 
-import edu.mit.csail.sdg.translator.A4Options.SatSolver;
+import kodkod.engine.satlab.SATFactory;
 
 /**
  *
@@ -39,6 +40,7 @@ import edu.mit.csail.sdg.translator.A4Options.SatSolver;
                    "serial", "unchecked"
 } )
 public class A4Preferences {
+
 
     /** Base class for holding a single preference */
     public abstract static class Pref<T> extends DefaultSingleSelectionModel {
@@ -572,6 +574,9 @@ public class A4Preferences {
     /** The latest tab distance of the Alloy Analyzer. */
     public static final IntChoicePref         TabSize                = IntChoicePref.range("TabSize", "Tab size", 1, 1, 16, 4);
 
+    /** The latest line-number mode selection of the Alloy Analyzer. */
+    public static final BooleanPref           LineNumbers            = new BooleanPref("Line-numbers", "Show line numbers in editors");
+
     /** The latest welcome screen that the user has seen. */
     public static final BooleanPref           Welcome                = new BooleanPref("Welcome", "Show welcome message at start up");
 
@@ -639,6 +644,7 @@ public class A4Preferences {
                                                                      };
 
     public enum Decompose {
+
                            /** regular amalgamated strategy. */
                            OFF("0", "batch"),
                            /** hybrid strategy, competitive parallel vs amalgamated. */
@@ -675,65 +681,66 @@ public class A4Preferences {
     /**
      * The amount of memory (in M) to allocate for Kodkod and the SAT solvers.
      */
-    public static final IntChoicePref                SubMemory            = new IntChoicePref("SubMemory", "Maximum memory", Arrays.asList(768, 1024, 1536, 2048, 2560, 3072, 3584, 4096, 8192, 16384), 2084) {
+    public static final IntChoicePref                 SubMemory            = new IntChoicePref("SubMemory", "Maximum memory", Arrays.asList(768, 1024, 1536, 2048, 2560, 3072, 3584, 4096, 8192, 16384), 2084) {
 
-                                                                              @Override
-                                                                              public Object renderValueShort(Integer value) {
-                                                                                  return value.toString() + " MB";
-                                                                              }
-                                                                          };
+                                                                               @Override
+                                                                               public Object renderValueShort(Integer value) {
+                                                                                   return value.toString() + " MB";
+                                                                               }
+                                                                           };
 
     /**
      * The amount of stack (in K) to allocate for Kodkod and the SAT solvers.
      */
-    public static final IntChoicePref                SubStack             = new IntChoicePref("SubStack", "Maximum stack", Arrays.asList(1024, 2048, 4096, 8192, 16384, 32768, 65536), 8192) {
+    public static final IntChoicePref                 SubStack             = new IntChoicePref("SubStack", "Maximum stack", Arrays.asList(1024, 2048, 4096, 8192, 16384, 32768, 65536), 8192) {
 
-                                                                              @Override
-                                                                              public Object renderValueShort(Integer value) {
-                                                                                  return value.toString() + " k";
-                                                                              }
-                                                                          };
+                                                                               @Override
+                                                                               public Object renderValueShort(Integer value) {
+                                                                                   return value.toString() + " k";
+                                                                               }
+                                                                           };
 
     /**
      * The first file in Alloy Analyzer's "open recent" list.
      */
-    public static final StringPref                   Model0               = new StringPref("Model0");
+    public static final StringPref                    Model0               = new StringPref("Model0");
 
     /**
      * The second file in Alloy Analyzer's "open recent" list.
      */
-    public static final StringPref                   Model1               = new StringPref("Model1");
+    public static final StringPref                    Model1               = new StringPref("Model1");
 
     /**
      * The third file in Alloy Analyzer's "open recent" list.
      */
-    public static final StringPref                   Model2               = new StringPref("Model2");
+    public static final StringPref                    Model2               = new StringPref("Model2");
 
     /**
      * The fourth file in Alloy Analyzer's "open recent" list.
      */
-    public static final StringPref                   Model3               = new StringPref("Model3");
+    public static final StringPref                    Model3               = new StringPref("Model3");
 
     /** Automatically infer partial instance from model */
-    public static final BooleanPref                  InferPartialInstance = new BooleanPref("InferPartialInstance", "Infer partial instance");
+    public static final BooleanPref                   InferPartialInstance = new BooleanPref("InferPartialInstance", "Infer partial instance");
 
-    public static final DelayedChoicePref<SatSolver> Solver               = new DelayedChoicePref<SatSolver>("SatSolver2", "Solver", SatSolver.values(), SatSolver.SAT4J) {
+    public static final DelayedChoicePref<SATFactory> Solver               = new DelayedChoicePref<SATFactory>("SatSolver2", "Solver", SATFactory.getAllSolvers(), SATFactory.DEFAULT) {
 
-                                                                              @Override
-                                                                              protected String serialize(SatSolver value) {
-                                                                                  return value.id();
-                                                                              }
-                                                                          };
+                                                                               @Override
+                                                                               protected String serialize(SATFactory value) {
+                                                                                   return value.id();
+                                                                               }
+                                                                           };
 
-    public static final ChoicePref<Verbosity>        VerbosityPref        = new ChoicePref<Verbosity>("Verbosity", Verbosity.values(), Verbosity.DEFAULT) {
+    public static final ChoicePref<Verbosity>         VerbosityPref        = new ChoicePref<Verbosity>("Verbosity", Verbosity.values(), Verbosity.DEFAULT) {
 
-                                                                              @Override
-                                                                              protected String serialize(Verbosity value) {
-                                                                                  return value.id;
-                                                                              }
-                                                                          };
+                                                                               @Override
+                                                                               protected String serialize(Verbosity value) {
+                                                                                   return value.id;
+                                                                               }
+                                                                           };
 
     public enum Verbosity {
+
                            /** Level 0. */
                            DEFAULT("0", "low"),
                            /** Level 1. */
@@ -804,14 +811,28 @@ public class A4Preferences {
         return ans;
     }
 
-    // /** The visualization algorithm */
-    // public static final StringChoicePref VisualizationAlgorithm = new
-    // StringChoicePref("VizAlg", "Visualization algorightm",
-    // Arrays.asList("Sugiyama", "Circle", "Grid"), "Sugiyama");
-    //
-    // public static final IntPref GridLayoutRows = new
-    // IntPref("GridLayoutRows", 1, 5, 100);
-    // public static final IntPref GridLayoutCols = new
-    // IntPref("GridLayoutCols", 1, 5, 100);
+    /**
+     * Convenience method to set a value by string
+     *
+     * @param id the id of the preference
+     * @param value the value in string form
+     * @return an error message or null if all ok
+     */
+
+    public static <T> String set(String id, String value) {
+        Optional<Pref< ? >> pref = allPrefs().stream().filter(p -> p.id.equals(id)).findAny();
+        if (pref.isPresent()) {
+            try {
+                Pref<T> p = (Pref<T>) pref.get();
+                T parsed = (T) pref.get().parse(value);
+                p.set(parsed);
+            } catch (Exception e) {
+                return e.getMessage();
+            }
+        } else {
+            return "no such preference";
+        }
+        return null;
+    }
 
 }

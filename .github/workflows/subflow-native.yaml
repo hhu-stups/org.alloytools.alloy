@@ -1,0 +1,27 @@
+name: subflow-native
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+      - run: |
+          brew install gmp
+          export HOMEBREW_NO_INSTALL_CLEANUP=true
+          brew install docker
+          colima start
+          ./gradlew --parallel compileJava
+          make -C org.alloytools.pardinus.native/native-code install
+          colima stop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native
+          path: org.alloytools.pardinus.native/native/
+
